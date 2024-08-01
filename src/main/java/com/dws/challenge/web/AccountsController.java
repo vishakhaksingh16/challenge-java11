@@ -1,6 +1,7 @@
 package com.dws.challenge.web;
 
 import com.dws.challenge.domain.Account;
+import com.dws.challenge.domain.AccountTransferRequest;
 import com.dws.challenge.exception.DuplicateAccountIdException;
 import com.dws.challenge.service.AccountsService;
 import lombok.extern.slf4j.Slf4j;
@@ -46,6 +47,17 @@ public class AccountsController {
   public Account getAccount(@PathVariable String accountId) {
     log.info("Retrieving account for id {}", accountId);
     return this.accountsService.getAccount(accountId);
+  }
+
+  @PostMapping(path = "/transfer", consumes = MediaType.APPLICATION_JSON_VALUE)
+  public ResponseEntity<Object> transferFunds(@RequestBody AccountTransferRequest accountTransferRequest) {
+    log.info("Transferring amount {} from {} to {}", accountTransferRequest.getTransferAmount(), accountTransferRequest.getAccountFromId(), accountTransferRequest.getAccountToId());
+    try {
+      this.accountsService.transferFunds(accountTransferRequest.getAccountFromId(), accountTransferRequest.getAccountToId(), accountTransferRequest.getTransferAmount());
+      return new ResponseEntity<>(HttpStatus.OK);
+    } catch (IllegalArgumentException e) {
+      return new ResponseEntity<>(e.getMessage(), HttpStatus.BAD_REQUEST);
+    }
   }
 
 }

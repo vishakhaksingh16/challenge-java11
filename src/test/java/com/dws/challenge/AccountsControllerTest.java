@@ -10,7 +10,9 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppC
 import java.math.BigDecimal;
 
 import com.dws.challenge.domain.Account;
+import com.dws.challenge.domain.AccountTransferRequest;
 import com.dws.challenge.service.AccountsService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -35,12 +37,26 @@ class AccountsControllerTest {
   @Autowired
   private WebApplicationContext webApplicationContext;
 
+  @Autowired
+  private ObjectMapper objectMapper;
+
+  private Account accountFrom;
+  private Account accountTo;
+
   @BeforeEach
   void prepareMockMvc() {
     this.mockMvc = webAppContextSetup(this.webApplicationContext).build();
 
     // Reset the existing accounts before each test.
     accountsService.getAccountsRepository().clearAccounts();
+
+    // Create account objects for transfer tests
+    accountFrom = new Account("1", BigDecimal.valueOf(100));
+    accountTo = new Account("2", BigDecimal.valueOf(50));
+
+    // Add account objects to repo
+    this.accountsService.createAccount(accountFrom);
+    this.accountsService.createAccount(accountTo);
   }
 
   @Test
@@ -102,4 +118,40 @@ class AccountsControllerTest {
       .andExpect(
         content().string("{\"accountId\":\"" + uniqueAccountId + "\",\"balance\":123.45}"));
   }
+
+  @Test
+  public void testTransferFunds_successful() throws Exception {
+    AccountTransferRequest request = new AccountTransferRequest(accountFrom.getAccountId(), accountTo.getAccountId(), BigDecimal.valueOf(10));
+    mockMvc.perform(post("/v1/accounts/transfer").contentType(MediaType.APPLICATION_JSON)
+                    .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isOk());
+  }
+
+  @Test
+  public void testTransferFunds_insufficientFunds() throws Exception {
+    AccountTransferRequest request = new AccountTransferRequest(accountFrom.getAccountId(), accountTo.getAccountId(), BigDecimal.valueOf(1000));
+    mockMvc.perform(post("/v1/accounts/transfer").contentType(MediaType.APPLICATION_JSON)
+                    .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isBadRequest())
+            .andExpect(content().string("Insufficient funds in the account"));
+  }
+
+  @Test
+  public void testTransferAmount_invalidFunds() throws Exception {
+    AccountTransferRequest request = new AccountTransferRequest(accountFrom.getAccountId(), accountTo.getAccountId(), BigDecimal.valueOf(-10));
+    mockMvc.perform(post("/v1/accounts/transfer").contentType(MediaType.APPLICATION_JSON)
+                    .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isBadRequest())
+            .andExpect(content().string("Transfer amount must be positive"));
+  }
+
+  @Test
+  public void testTransferFunds_accountNotFound() throws Exception {
+    AccountTransferRequest request = new AccountTransferRequest("Invalid Account Id", accountTo.getAccountId(), BigDecimal.valueOf(10));
+    mockMvc.perform(post("/v1/accounts/transfer").contentType(MediaType.APPLICATION_JSON)
+                    .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isBadRequest())
+            .andExpect(content().string("Both accounts must exist"));
+  }
+
 }
