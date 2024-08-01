@@ -8,11 +8,19 @@ import java.math.BigDecimal;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 @Repository
 public class AccountsRepositoryInMemory implements AccountsRepository {
 
     private final Map<String, Account> accounts = new ConcurrentHashMap<>();
+    // Map to hold locks for each account
+    private final ConcurrentHashMap<String, Lock> locks = new ConcurrentHashMap<>();
+    // Get or create a lock for a specific account
+    private Lock getLock(String accountId) {
+        return locks.computeIfAbsent(accountId, id -> new ReentrantLock());
+    }
 
     @Override
     public void createAccount(Account account) throws DuplicateAccountIdException {
@@ -38,13 +46,35 @@ public class AccountsRepositoryInMemory implements AccountsRepository {
         if (Objects.isNull(accountFrom) || Objects.isNull(accountTo)) {
             throw new IllegalArgumentException("Both accounts must exist");
         }
-        synchronized (this) {
-            if (accountFrom.getBalance().compareTo(amount) < 0) {
-                throw new IllegalArgumentException("Insufficient funds in the account");
+        if (accountFrom.equals(accountTo)) {
+            throw new IllegalArgumentException("Cannot transfer funds between the same account");
+        }
+        // Obtain unique identifiers for accounts
+        String idFrom = accountFrom.getAccountId();
+        String idTo = accountTo.getAccountId();
+
+        // Determine locks based on the natural order of the account IDs
+        Lock lock1 = getLock(idFrom);
+        Lock lock2 = getLock(idTo);
+        Lock firstLock = idFrom.compareTo(idTo) < 0 ? lock1 : lock2;
+        Lock secondLock = idFrom.compareTo(idTo) < 0 ? lock2 : lock1;
+
+        // Acquire locks in a consistent order
+        firstLock.lock();
+        try {
+            secondLock.lock();
+            try {
+                if (accountFrom.getBalance().compareTo(amount) < 0) {
+                    throw new IllegalArgumentException("Insufficient funds in the account");
+                }
+                accountFrom.setBalance(accountFrom.getBalance().subtract(amount));
+                accountTo.setBalance(accountTo.getBalance().add(amount));
+            } finally {
+                secondLock.unlock();
             }
-            accountFrom.setBalance(accountFrom.getBalance().subtract(amount));
-            accountTo.setBalance(accountTo.getBalance().add(amount));
+        } finally {
+            firstLock.unlock();
         }
     }
+    }
 
-}

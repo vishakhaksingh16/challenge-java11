@@ -3,6 +3,7 @@ package com.dws.challenge;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
 
@@ -17,6 +18,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.test.context.junit.jupiter.SpringExtension;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 @ExtendWith(SpringExtension.class)
 @SpringBootTest
@@ -97,5 +102,51 @@ class AccountsServiceTest {
     IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () -> accountsService.transferFunds("1", "2", BigDecimal.valueOf(10)));
 
     assertEquals("Both accounts must exist", exception.getMessage());
+  }
+
+  @Test
+  void testDeadlockScenario() throws InterruptedException {
+
+    CountDownLatch startLatch = new CountDownLatch(1);
+    CountDownLatch doneLatch = new CountDownLatch(2); // Two threads
+
+    Runnable task1 = () -> {
+      try {
+        startLatch.await();
+        accountsService.transferFunds(accountFrom.getAccountId(), accountTo.getAccountId(), BigDecimal.valueOf(10));
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      } finally {
+        doneLatch.countDown();
+      }
+    };
+
+    Runnable task2 = () -> {
+      try {
+        startLatch.await();
+        accountsService.transferFunds(accountTo.getAccountId(), accountFrom.getAccountId(), BigDecimal.valueOf(10));
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      } finally {
+        doneLatch.countDown();
+      }
+    };
+
+    ExecutorService executor = Executors.newFixedThreadPool(2);
+    executor.submit(task1);
+    executor.submit(task2);
+
+    // Start both tasks
+    startLatch.countDown();
+
+    // Wait for both tasks to complete
+    boolean finished = doneLatch.await(5, TimeUnit.SECONDS);
+
+    // Shutdown executor
+    executor.shutdown();
+
+    // Verify that both tasks have completed, which indicates no deadlock occurred
+    assertTrue(finished, "Threads did not complete in time, possible deadlock");
+
   }
 }
