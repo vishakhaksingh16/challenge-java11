@@ -49,17 +49,16 @@ public class AccountsRepositoryInMemory implements AccountsRepository {
         if (accountFrom.equals(accountTo)) {
             throw new IllegalArgumentException("Cannot transfer funds between the same account");
         }
-        // Obtain unique identifiers for accounts
+
         String idFrom = accountFrom.getAccountId();
         String idTo = accountTo.getAccountId();
 
-        // Determine locks based on the natural order of the account IDs
+        // consistent order of locks considering order of account ids
         Lock lock1 = getLock(idFrom);
         Lock lock2 = getLock(idTo);
         Lock firstLock = idFrom.compareTo(idTo) < 0 ? lock1 : lock2;
         Lock secondLock = idFrom.compareTo(idTo) < 0 ? lock2 : lock1;
 
-        // Acquire locks in a consistent order
         firstLock.lock();
         try {
             secondLock.lock();
